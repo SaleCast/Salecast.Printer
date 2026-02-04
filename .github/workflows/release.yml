@@ -33,9 +33,19 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
+          cache: true
+          cache-dependency-path: '**/SaleCast.Printer.csproj'
+
+      - name: Cache .NET tools
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet/tools
+          key: ${{ runner.os }}-dotnet-tools-vpk
+          restore-keys: |
+            ${{ runner.os }}-dotnet-tools-
 
       - name: Install Velopack CLI
-        run: dotnet tool install -g vpk
+        run: dotnet tool install -g vpk || dotnet tool update -g vpk
 
       - name: Determine version
         id: version
