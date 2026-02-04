@@ -61,6 +61,7 @@ else if (OperatingSystem.IsMacOS())
 {
     builder.Services.AddSingleton<IPrinterService, MacPrinterService>();
     builder.Services.AddSingleton<MacStartupService>();
+    builder.Services.AddSingleton<MacMenuBarService>();
 }
 else
 {
@@ -188,6 +189,9 @@ await using (var scope = app.Services.CreateAsyncScope())
     {
         var startupService = scope.ServiceProvider.GetRequiredService<MacStartupService>();
         startupService.EnsureStartupRegistration();
+
+        // Initialize menu bar service (keeps it alive)
+        _ = scope.ServiceProvider.GetRequiredService<MacMenuBarService>();
     }
 
     // Check for Velopack updates periodically (every 6 hours)

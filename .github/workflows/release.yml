@@ -20,8 +20,10 @@ permissions:
   contents: write
 
 jobs:
-  build-and-release:
+  build-windows:
     runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
 
     steps:
       - name: Checkout code
@@ -91,7 +93,7 @@ jobs:
           if ($releases -and $releases.Count -gt 0) {
             $latestTag = $releases[0].tagName
             echo "Found previous release: $latestTag"
-            gh release download $latestTag --pattern "*.nupkg" --pattern "RELEASES" --pattern "releases.*.json" --dir $releasesDir 2>$null
+            gh release download $latestTag --pattern "*-win-*" --pattern "RELEASES" --pattern "releases.win*.json" --dir $releasesDir 2>$null
           } else {
             echo "No previous releases found, creating first release"
           }
@@ -101,31 +103,163 @@ jobs:
 
       - name: Package with Velopack
         run: |
-          vpk pack --packId ${{ env.PACK_ID }} --packVersion ${{ steps.version.outputs.VERSION }} --packDir ${{ env.PROJECT_PATH }}/publish/win-x64 --mainExe SaleCast.Printer.exe --outputDir ${{ env.PROJECT_PATH }}/releases
+          vpk pack --packId ${{ env.PACK_ID }} --packVersion ${{ steps.version.outputs.VERSION }} --packDir ${{ env.PROJECT_PATH }}/publish/win-x64 --mainExe SaleCast.Printer.exe --outputDir ${{ env.PROJECT_PATH }}/releases --channel win
 
       - name: List release artifacts
         shell: pwsh
         run: Get-ChildItem -Path "${{ env.PROJECT_PATH }}/releases" -Recurse
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: v${{ steps.version.outputs.VERSION }}
-          name: SaleCast.Printer v${{ steps.version.outputs.VERSION }}
-          draft: false
-          prerelease: false
-          files: |
+          name: windows-release
+          path: |
             ${{ env.PROJECT_PATH }}/releases/*.exe
             ${{ env.PROJECT_PATH }}/releases/*.nupkg
             ${{ env.PROJECT_PATH }}/releases/*.zip
             ${{ env.PROJECT_PATH }}/releases/RELEASES
             ${{ env.PROJECT_PATH }}/releases/releases.*.json
             ${{ env.PROJECT_PATH }}/releases/assets.*.json
+
+  build-macos:
+    runs-on: macos-latest
+    needs: build-windows
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Install Velopack CLI
+        run: dotnet tool install -g vpk || dotnet tool update -g vpk
+
+      - name: Update version in csproj
+        run: |
+          version="${{ needs.build-windows.outputs.version }}"
+          sed -i '' "s/<Version>.*<\/Version>/<Version>$version<\/Version>/" ${{ env.PROJECT_PATH }}/SaleCast.Printer.csproj
+          sed -i '' "s/<AssemblyVersion>.*<\/AssemblyVersion>/<AssemblyVersion>$version.0<\/AssemblyVersion>/" ${{ env.PROJECT_PATH }}/SaleCast.Printer.csproj
+          sed -i '' "s/<FileVersion>.*<\/FileVersion>/<FileVersion>$version.0<\/FileVersion>/" ${{ env.PROJECT_PATH }}/SaleCast.Printer.csproj
+          echo "Updated version to $version"
+
+      - name: Restore dependencies
+        run: dotnet restore ${{ env.PROJECT_PATH }}
+
+      - name: Publish macOS x64
+        run: |
+          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r osx-x64 --self-contained -o ${{ env.PROJECT_PATH }}/publish/osx-x64
+
+      - name: Publish macOS arm64
+        run: |
+          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r osx-arm64 --self-contained -o ${{ env.PROJECT_PATH }}/publish/osx-arm64
+
+      - name: Download previous releases (for delta updates)
+        continue-on-error: true
+        run: |
+          mkdir -p ./releases
+          releases=$(gh release list --limit 1 --json tagName 2>/dev/null || echo "[]")
+          latestTag=$(echo "$releases" | jq -r '.[0].tagName // empty')
+
+          if [ -n "$latestTag" ]; then
+            echo "Found previous release: $latestTag"
+            gh release download "$latestTag" --pattern "*-osx-*" --pattern "releases.osx*.json" --dir ./releases 2>/dev/null || true
+          else
+            echo "No previous releases found, creating first release"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Package macOS x64 with Velopack
+        run: |
+          vpk pack \
+            --packId ${{ env.PACK_ID }} \
+            --packVersion ${{ needs.build-windows.outputs.version }} \
+            --packDir ${{ env.PROJECT_PATH }}/publish/osx-x64 \
+            --mainExe SaleCast.Printer \
+            --outputDir ${{ env.PROJECT_PATH }}/releases \
+            --channel osx-x64 \
+            --packTitle "SaleCast Printer" \
+            --delta BestSize
+
+      - name: Package macOS arm64 with Velopack
+        run: |
+          vpk pack \
+            --packId ${{ env.PACK_ID }} \
+            --packVersion ${{ needs.build-windows.outputs.version }} \
+            --packDir ${{ env.PROJECT_PATH }}/publish/osx-arm64 \
+            --mainExe SaleCast.Printer \
+            --outputDir ${{ env.PROJECT_PATH }}/releases \
+            --channel osx-arm64 \
+            --packTitle "SaleCast Printer" \
+            --delta BestSize
+
+      - name: List release artifacts
+        run: ls -la ${{ env.PROJECT_PATH }}/releases/
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-release
+          path: |
+            ${{ env.PROJECT_PATH }}/releases/*.zip
+            ${{ env.PROJECT_PATH }}/releases/*.pkg
+            ${{ env.PROJECT_PATH }}/releases/releases.*.json
+            ${{ env.PROJECT_PATH }}/releases/assets.*.json
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [build-windows, build-macos]
+
+    steps:
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-release
+          path: ./releases/windows
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-release
+          path: ./releases/macos
+
+      - name: List all artifacts
+        run: |
+          echo "=== Windows ==="
+          ls -la ./releases/windows/ || true
+          echo "=== macOS ==="
+          ls -la ./releases/macos/ || true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.build-windows.outputs.version }}
+          name: SaleCast.Printer v${{ needs.build-windows.outputs.version }}
+          draft: false
+          prerelease: false
+          files: |
+            ./releases/windows/*
+            ./releases/macos/*
           body: |
-            ## SaleCast.Printer v${{ steps.version.outputs.VERSION }}
+            ## SaleCast.Printer v${{ needs.build-windows.outputs.version }}
 
             ### Installation
+
+            **Windows:**
             Download and run `SaleCast.Printer-win-Setup.exe`
+
+            **macOS (Intel):**
+            Download and run `SaleCast.Printer-osx-x64-Setup.pkg`
+
+            **macOS (Apple Silicon):**
+            Download and run `SaleCast.Printer-osx-arm64-Setup.pkg`
+
+            > **Note macOS:** L'application n'est pas signée. Lors du premier lancement, faites clic-droit > Ouvrir pour autoriser l'exécution.
 
             ### Updates
             If you already have SaleCast.Printer installed, it will update automatically.

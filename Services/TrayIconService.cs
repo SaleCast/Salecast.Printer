@@ -46,53 +46,8 @@ public class TrayIconService : IDisposable
 
     private static Icon LoadIcon()
     {
-        // Try to load custom icon from Assets folder
-        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "printer.ico");
-        if (File.Exists(iconPath))
-        {
-            return new Icon(iconPath);
-        }
-
-        // Try to extract icon from the executable
-        var exePath = Environment.ProcessPath;
-        if (exePath != null && File.Exists(exePath))
-        {
-            var icon = Icon.ExtractAssociatedIcon(exePath);
-            if (icon != null) return icon;
-        }
-
-        // Fallback: create a simple printer icon programmatically
-        return CreatePrinterIcon();
-    }
-
-    private static Icon CreatePrinterIcon()
-    {
-        using var bitmap = new Bitmap(32, 32);
-        using var g = Graphics.FromImage(bitmap);
-
-        // Background
-        g.Clear(Color.Transparent);
-
-        // Printer body (gray box)
-        using var bodyBrush = new SolidBrush(Color.FromArgb(80, 80, 80));
-        g.FillRectangle(bodyBrush, 4, 10, 24, 14);
-
-        // Paper tray (top)
-        using var paperBrush = new SolidBrush(Color.White);
-        g.FillRectangle(paperBrush, 8, 4, 16, 8);
-
-        // Output paper (bottom)
-        g.FillRectangle(paperBrush, 8, 22, 16, 6);
-
-        // Printer details
-        using var detailBrush = new SolidBrush(Color.FromArgb(60, 60, 60));
-        g.FillRectangle(detailBrush, 6, 14, 4, 4);
-
-        // Green status light
-        using var statusBrush = new SolidBrush(Color.LimeGreen);
-        g.FillEllipse(statusBrush, 20, 14, 4, 4);
-
-        return Icon.FromHandle(bitmap.GetHicon());
+        // Use IconService to load icon (supports SVG, ICO, PNG)
+        return IconService.LoadAppIcon(32);
     }
 
     private PopupMenu CreateContextMenu()
