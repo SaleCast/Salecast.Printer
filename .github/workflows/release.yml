@@ -1,0 +1,122 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # Triggered on version tags like v1.0.0, v1.0.1, etc.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 1.0.1)'
+        required: true
+        type: string
+
+env:
+  DOTNET_VERSION: '10.0.x'
+  PROJECT_PATH: 'SaleCast.Printer'
+  PACK_ID: 'SaleCast.Printer'
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Install Velopack CLI
+        run: dotnet tool install -g vpk
+
+      - name: Determine version
+        id: version
+        shell: pwsh
+        run: |
+          if ("${{ github.event.inputs.version }}" -ne "") {
+            $version = "${{ github.event.inputs.version }}"
+          } else {
+            $version = "${{ github.ref_name }}".TrimStart('v')
+          }
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+          echo "Version: $version"
+
+      - name: Update version in csproj
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.VERSION }}"
+          $csprojPath = "${{ env.PROJECT_PATH }}/SaleCast.Printer.csproj"
+          $content = Get-Content $csprojPath -Raw
+          $content = $content -replace '<Version>.*</Version>', "<Version>$version</Version>"
+          $content = $content -replace '<AssemblyVersion>.*</AssemblyVersion>', "<AssemblyVersion>$version.0</AssemblyVersion>"
+          $content = $content -replace '<FileVersion>.*</FileVersion>', "<FileVersion>$version.0</FileVersion>"
+          Set-Content $csprojPath $content
+          echo "Updated version to $version"
+
+      - name: Restore dependencies
+        run: dotnet restore ${{ env.PROJECT_PATH }}
+
+      - name: Publish Windows x64
+        run: |
+          dotnet publish ${{ env.PROJECT_PATH }} -c Release -r win-x64 --self-contained -o ${{ env.PROJECT_PATH }}/publish/win-x64
+
+      - name: Download previous releases (for delta updates)
+        shell: pwsh
+        run: |
+          $releasesDir = "${{ env.PROJECT_PATH }}/releases"
+          New-Item -ItemType Directory -Force -Path $releasesDir
+
+          # Try to download existing releases for delta generation
+          try {
+            $releases = gh release list --limit 1 --json tagName,assets 2>$null | ConvertFrom-Json
+            if ($releases -and $releases.Count -gt 0) {
+              $latestTag = $releases[0].tagName
+              echo "Found previous release: $latestTag"
+              gh release download $latestTag --pattern "*.nupkg" --pattern "RELEASES" --pattern "releases.*.json" --dir $releasesDir 2>$null
+            }
+          } catch {
+            echo "No previous releases found, creating first release"
+          }
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Package with Velopack
+        run: |
+          vpk pack --packId ${{ env.PACK_ID }} --packVersion ${{ steps.version.outputs.VERSION }} --packDir ${{ env.PROJECT_PATH }}/publish/win-x64 --mainExe SaleCast.Printer.exe --outputDir ${{ env.PROJECT_PATH }}/releases
+
+      - name: List release artifacts
+        shell: pwsh
+        run: Get-ChildItem -Path "${{ env.PROJECT_PATH }}/releases" -Recurse
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.VERSION }}
+          name: SaleCast.Printer v${{ steps.version.outputs.VERSION }}
+          draft: false
+          prerelease: false
+          files: |
+            ${{ env.PROJECT_PATH }}/releases/*.exe
+            ${{ env.PROJECT_PATH }}/releases/*.nupkg
+            ${{ env.PROJECT_PATH }}/releases/*.zip
+            ${{ env.PROJECT_PATH }}/releases/RELEASES
+            ${{ env.PROJECT_PATH }}/releases/releases.*.json
+            ${{ env.PROJECT_PATH }}/releases/assets.*.json
+          body: |
+            ## SaleCast.Printer v${{ steps.version.outputs.VERSION }}
+
+            ### Installation
+            Download and run `SaleCast.Printer-win-Setup.exe`
+
+            ### Updates
+            If you already have SaleCast.Printer installed, it will update automatically.
+
+            ### Changes
+            See commit history for changes in this release.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
