@@ -12,8 +12,8 @@ on:
         type: string
 
 env:
-  DOTNET_VERSION: '10.0.x'
-  PROJECT_PATH: 'SaleCast.Printer'
+  DOTNET_VERSION: '9.0.x'
+  PROJECT_PATH: '.'
   PACK_ID: 'SaleCast.Printer'
 
 jobs:
