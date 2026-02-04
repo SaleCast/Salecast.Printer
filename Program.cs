@@ -5,16 +5,12 @@ using Velopack;
 
 // Velopack: Handle install/update hooks
 VelopackApp.Build()
-    .OnFirstRun(v =>
-    {
-        // Register for startup on first install
-        if (OperatingSystem.IsWindows())
-        {
-            RegisterWindowsStartup();
-        }
-    })
+#if WINDOWS
+    .OnFirstRun(_ => RegisterWindowsStartup())
+#endif
     .Run();
 
+#if WINDOWS
 // Helper method for startup registration (called by Velopack hook)
 static void RegisterWindowsStartup()
 {
@@ -30,6 +26,7 @@ static void RegisterWindowsStartup()
         catch { /* Will be handled by startup service */ }
     }
 }
+#endif
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -51,22 +48,17 @@ var port = builder.Configuration.GetValue("Api:Port", 5123);
 builder.WebHost.UseUrls($"http://localhost:{port}");
 
 // Register platform-specific services
-if (OperatingSystem.IsWindows())
-{
-    builder.Services.AddSingleton<IPrinterService, WindowsPrinterService>();
-    builder.Services.AddSingleton<WindowsStartupService>();
-    builder.Services.AddSingleton<TrayIconService>();
-}
-else if (OperatingSystem.IsMacOS())
-{
-    builder.Services.AddSingleton<IPrinterService, MacPrinterService>();
-    builder.Services.AddSingleton<MacStartupService>();
-    builder.Services.AddSingleton<MacMenuBarService>();
-}
-else
-{
-    throw new PlatformNotSupportedException("Only Windows and macOS are supported");
-}
+#if WINDOWS
+builder.Services.AddSingleton<IPrinterService, WindowsPrinterService>();
+builder.Services.AddSingleton<WindowsStartupService>();
+builder.Services.AddSingleton<TrayIconService>();
+#elif MACOS
+builder.Services.AddSingleton<IPrinterService, MacPrinterService>();
+builder.Services.AddSingleton<MacStartupService>();
+builder.Services.AddSingleton<MacMenuBarService>();
+#else
+throw new PlatformNotSupportedException("Only Windows and macOS are supported");
+#endif
 
 // Add Swagger/OpenAPI
 builder.Services.AddEndpointsApiExplorer();
@@ -177,22 +169,20 @@ await using (var scope = app.Services.CreateAsyncScope())
     var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
 
     // Register for OS startup if configured
-    if (OperatingSystem.IsWindows())
-    {
-        var startupService = scope.ServiceProvider.GetRequiredService<WindowsStartupService>();
-        startupService.EnsureStartupRegistration();
+    // Register for OS startup if configured
+#if WINDOWS
+    var startupService = scope.ServiceProvider.GetRequiredService<WindowsStartupService>();
+    startupService.EnsureStartupRegistration();
 
-        // Initialize tray icon (keeps it alive)
-        _ = scope.ServiceProvider.GetRequiredService<TrayIconService>();
-    }
-    else if (OperatingSystem.IsMacOS())
-    {
-        var startupService = scope.ServiceProvider.GetRequiredService<MacStartupService>();
-        startupService.EnsureStartupRegistration();
+    // Initialize tray icon (keeps it alive)
+    _ = scope.ServiceProvider.GetRequiredService<TrayIconService>();
+#elif MACOS
+    var startupService = scope.ServiceProvider.GetRequiredService<MacStartupService>();
+    startupService.EnsureStartupRegistration();
 
-        // Initialize menu bar service (keeps it alive)
-        _ = scope.ServiceProvider.GetRequiredService<MacMenuBarService>();
-    }
+    // Initialize menu bar service (keeps it alive)
+    _ = scope.ServiceProvider.GetRequiredService<MacMenuBarService>();
+#endif
 
     // Check for Velopack updates periodically (every 6 hours)
     var updateUrl = builder.Configuration["Update:Url"];
