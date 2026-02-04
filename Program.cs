@@ -213,7 +213,7 @@ await using (var scope = app.Services.CreateAsyncScope())
     }
 }
 
-static async Task CheckForUpdatesAsync(string updateUrl, ILogger logger)
+static async Task CheckForUpdatesAsync(string updateUrl, Microsoft.Extensions.Logging.ILogger logger)
 {
     try
     {
