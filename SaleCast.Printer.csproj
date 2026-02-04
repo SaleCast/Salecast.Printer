@@ -2,7 +2,8 @@
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
-    <OutputType>WinExe</OutputType>
+    <OutputType Condition="$([MSBuild]::IsOSPlatform('Windows'))">WinExe</OutputType>
+    <OutputType Condition="!$([MSBuild]::IsOSPlatform('Windows'))">Exe</OutputType>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -10,25 +11,34 @@
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <FileVersion>1.0.0.0</FileVersion>
     <Version>1.0.0</Version>
-    <!-- <ApplicationIcon>Assets\printer.ico</ApplicationIcon> -->
   </PropertyGroup>
 
+  <!-- Common packages -->
   <ItemGroup>
     <PackageReference Include="Docnet.Core" Version="2.6.0" />
     <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="7.2.0" />
     <PackageReference Include="Velopack" Version="0.0.1298" />
-    <PackageReference Include="H.NotifyIcon" Version="2.2.0" />
     <PackageReference Include="Svg.Skia" Version="2.0.0.4" />
     <PackageReference Include="SkiaSharp" Version="3.116.1" />
   </ItemGroup>
 
+  <!-- Windows-only packages -->
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
     <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
     <PackageReference Include="System.Management" Version="9.0.0" />
+    <PackageReference Include="H.NotifyIcon" Version="2.2.0" />
   </ItemGroup>
 
-  <!-- Copy Assets folder to output (for custom icon) -->
+  <!-- Exclude Windows-only source files on non-Windows -->
+  <ItemGroup Condition="!$([MSBuild]::IsOSPlatform('Windows'))">
+    <Compile Remove="Services\WindowsPrinterService.cs" />
+    <Compile Remove="Services\WindowsStartupService.cs" />
+    <Compile Remove="Services\TrayIconService.cs" />
+    <Compile Remove="Services\IconService.cs" />
+  </ItemGroup>
+
+  <!-- Copy Assets folder to output -->
   <ItemGroup>
     <None Include="Assets\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
