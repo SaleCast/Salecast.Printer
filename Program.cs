@@ -190,38 +190,53 @@ await using (var scope = app.Services.CreateAsyncScope())
         startupService.EnsureStartupRegistration();
     }
 
-    // Check for Velopack updates (non-blocking)
-    _ = Task.Run(async () =>
+    // Check for Velopack updates periodically (every 6 hours)
+    var updateUrl = builder.Configuration["Update:Url"];
+    if (!string.IsNullOrEmpty(updateUrl))
     {
-        try
+        _ = Task.Run(async () =>
         {
-            var updateUrl = builder.Configuration["Update:Url"];
-            if (string.IsNullOrEmpty(updateUrl))
-            {
-                logger.LogInformation("Update URL not configured, skipping update check");
-                return;
-            }
+            var updateCheckInterval = TimeSpan.FromHours(6);
+            using var timer = new PeriodicTimer(updateCheckInterval);
 
-            var mgr = new UpdateManager(updateUrl);
-            var updateInfo = await mgr.CheckForUpdatesAsync();
+            // Check immediately on startup, then every 6 hours
+            do
+            {
+                await CheckForUpdatesAsync(updateUrl, logger);
+            }
+            while (await timer.WaitForNextTickAsync());
+        });
+    }
+    else
+    {
+        logger.LogInformation("Update URL not configured, auto-update disabled");
+    }
+}
 
-            if (updateInfo != null)
-            {
-                logger.LogInformation("Update available: {Version}", updateInfo.TargetFullRelease.Version);
-                await mgr.DownloadUpdatesAsync(updateInfo);
-                logger.LogInformation("Update downloaded, restarting to apply...");
-                mgr.ApplyUpdatesAndRestart(updateInfo);
-            }
-            else
-            {
-                logger.LogInformation("Application is up to date");
-            }
-        }
-        catch (Exception ex)
+static async Task CheckForUpdatesAsync(string updateUrl, ILogger logger)
+{
+    try
+    {
+        logger.LogInformation("Checking for updates...");
+        var mgr = new UpdateManager(updateUrl);
+        var updateInfo = await mgr.CheckForUpdatesAsync();
+
+        if (updateInfo != null)
         {
-            logger.LogError(ex, "Error checking for updates");
+            logger.LogInformation("Update available: {Version}", updateInfo.TargetFullRelease.Version);
+            await mgr.DownloadUpdatesAsync(updateInfo);
+            logger.LogInformation("Update downloaded, restarting to apply...");
+            mgr.ApplyUpdatesAndRestart(updateInfo);
         }
-    });
+        else
+        {
+            logger.LogInformation("Application is up to date");
+        }
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Error checking for updates");
+    }
 }
 
 Log.Information("SaleCast.Printer started on port {Port}", port);
