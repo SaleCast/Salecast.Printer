@@ -67,21 +67,22 @@ jobs:
 
       - name: Download previous releases (for delta updates)
         shell: pwsh
+        continue-on-error: true
         run: |
-          $releasesDir = "${{ env.PROJECT_PATH }}/releases"
+          $releasesDir = "./releases"
           New-Item -ItemType Directory -Force -Path $releasesDir
 
-          # Try to download existing releases for delta generation
-          try {
-            $releases = gh release list --limit 1 --json tagName,assets 2>$null | ConvertFrom-Json
-            if ($releases -and $releases.Count -gt 0) {
-              $latestTag = $releases[0].tagName
-              echo "Found previous release: $latestTag"
-              gh release download $latestTag --pattern "*.nupkg" --pattern "RELEASES" --pattern "releases.*.json" --dir $releasesDir 2>$null
-            }
-          } catch {
+          $ErrorActionPreference = "SilentlyContinue"
+          $releases = gh release list --limit 1 --json tagName 2>$null | ConvertFrom-Json
+
+          if ($releases -and $releases.Count -gt 0) {
+            $latestTag = $releases[0].tagName
+            echo "Found previous release: $latestTag"
+            gh release download $latestTag --pattern "*.nupkg" --pattern "RELEASES" --pattern "releases.*.json" --dir $releasesDir 2>$null
+          } else {
             echo "No previous releases found, creating first release"
           }
+          exit 0
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
