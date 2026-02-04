@@ -16,6 +16,9 @@ env:
   PROJECT_PATH: '.'
   PACK_ID: 'SaleCast.Printer'
 
+permissions:
+  contents: write
+
 jobs:
   build-and-release:
     runs-on: windows-latest
