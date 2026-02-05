@@ -198,6 +198,7 @@ jobs:
         with:
           name: macos-release
           path: |
+            ${{ env.PROJECT_PATH }}/releases/*.nupkg
             ${{ env.PROJECT_PATH }}/releases/*.zip
             ${{ env.PROJECT_PATH }}/releases/*.pkg
             ${{ env.PROJECT_PATH }}/releases/releases.*.json
