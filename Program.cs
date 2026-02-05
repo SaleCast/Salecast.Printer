@@ -169,7 +169,6 @@ await using (var scope = app.Services.CreateAsyncScope())
     var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
 
     // Register for OS startup if configured
-    // Register for OS startup if configured
 #if WINDOWS
     var startupService = scope.ServiceProvider.GetRequiredService<WindowsStartupService>();
     startupService.EnsureStartupRegistration();
@@ -179,9 +178,6 @@ await using (var scope = app.Services.CreateAsyncScope())
 #elif MACOS
     var startupService = scope.ServiceProvider.GetRequiredService<MacStartupService>();
     startupService.EnsureStartupRegistration();
-
-    // Initialize menu bar service (keeps it alive)
-    _ = scope.ServiceProvider.GetRequiredService<MacMenuBarService>();
 #endif
 
     // Check for Velopack updates periodically (every 6 hours)
@@ -236,4 +232,19 @@ static async Task CheckForUpdatesAsync(string updateUrl, Microsoft.Extensions.Lo
 Log.Information("SaleCast.Printer started on port {Port}", port);
 Log.Information("Swagger UI available at http://localhost:{Port}/swagger", port);
 
+#if MACOS
+// macOS: Start web host in background, keep main thread for AppKit event loop
+await app.StartAsync();
+try
+{
+    var menuBarService = app.Services.GetRequiredService<MacMenuBarService>();
+    menuBarService.Initialize();
+    menuBarService.Run(); // Blocks main thread until Quit
+}
+finally
+{
+    await app.StopAsync();
+}
+#else
 app.Run();
+#endif
