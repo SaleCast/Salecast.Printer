@@ -66,6 +66,11 @@ public class MacMenuBarService : IDisposable
     [DllImport(ObjCRuntime, EntryPoint = "objc_msgSend")]
     private static extern void objc_msgSend_void_size(IntPtr receiver, IntPtr selector, NSSize arg1);
 
+    // nextEventMatchingMask:untilDate:inMode:dequeue:
+    [DllImport(ObjCRuntime, EntryPoint = "objc_msgSend")]
+    private static extern IntPtr objc_msgSend_nextEvent(IntPtr receiver, IntPtr selector,
+        nuint mask, IntPtr date, IntPtr mode, [MarshalAs(UnmanagedType.I1)] bool dequeue);
+
     [DllImport(ObjCRuntime)]
     private static extern IntPtr objc_allocateClassPair(IntPtr superclass, string name, int extraBytes);
 
@@ -163,12 +168,12 @@ public class MacMenuBarService : IDisposable
         var nsApp = objc_msgSend(objc_getClass("NSApplication"), sel_registerName("sharedApplication"));
         objc_msgSend_void(nsApp, sel_registerName("finishLaunching"));
 
-        var runLoop = objc_msgSend(objc_getClass("NSRunLoop"), sel_registerName("currentRunLoop"));
         var mode = CreateNSString("kCFRunLoopDefaultMode");
+        var nextEventSel = sel_registerName("nextEventMatchingMask:untilDate:inMode:dequeue:");
+        var sendEventSel = sel_registerName("sendEvent:");
 
         while (_running)
         {
-            // Autorelease pool to drain autoreleased ObjC objects each iteration
             var pool = objc_msgSend(
                 objc_msgSend(objc_getClass("NSAutoreleasePool"), sel_registerName("alloc")),
                 sel_registerName("init"));
@@ -176,7 +181,15 @@ public class MacMenuBarService : IDisposable
             var date = objc_msgSend_double(
                 objc_getClass("NSDate"),
                 sel_registerName("dateWithTimeIntervalSinceNow:"), 1.0);
-            objc_msgSend(runLoop, sel_registerName("runMode:beforeDate:"), mode, date);
+
+            // Fetch and dispatch UI events (clicks, keyboard, etc.)
+            var evt = objc_msgSend_nextEvent(nsApp, nextEventSel,
+                nuint.MaxValue, date, mode, true);
+
+            if (evt != IntPtr.Zero)
+            {
+                objc_msgSend_void(nsApp, sendEventSel, evt);
+            }
 
             objc_msgSend_void(pool, sel_registerName("drain"));
         }
